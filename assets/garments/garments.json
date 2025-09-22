@@ -1,0 +1,38 @@
+{
+  "garments": [
+    {
+      "id": "tshirt_basic",
+      "name": "Essential Crew Tee",
+      "category": "top",
+      "width_factor": 1.2,
+      "height_factor": 1.45,
+      "depth": 0.12,
+      "sizes": {
+        "S": {"scale": 0.92},
+        "M": {"scale": 1.0},
+        "L": {"scale": 1.08}
+      },
+      "colorways": [
+        {"id": "classic-white", "name": "Classic White", "color": "#f6f6f6"},
+        {"id": "sunset-orange", "name": "Sunset Orange", "color": "#f57b42"}
+      ]
+    },
+    {
+      "id": "hoodie_relaxed",
+      "name": "Relaxed Hoodie",
+      "category": "outerwear",
+      "width_factor": 1.35,
+      "height_factor": 1.6,
+      "depth": 0.18,
+      "sizes": {
+        "S": {"scale": 0.9},
+        "M": {"scale": 1.0},
+        "L": {"scale": 1.12}
+      },
+      "colorways": [
+        {"id": "midnight-blue", "name": "Midnight Blue", "color": "#1c2d52"},
+        {"id": "forest-green", "name": "Forest Green", "color": "#2b5d44"}
+      ]
+    }
+  ]
+}
