@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Virtual Try-On Demo</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Virtual Try-On Demo</h1>
+      <p class="tagline">Upload a photo and preview canonical 3D try-on results rendered as glTF.</p>
+    </header>
+    <main>
+      <section class="panel">
+        <form id="tryon-form">
+          <label class="field">
+            <span>Person Photo</span>
+            <input type="file" name="image" id="image" accept="image/*" required />
+          </label>
+          <label class="field">
+            <span>Garment</span>
+            <select name="garment_id" id="garment-select" required></select>
+          </label>
+          <label class="field">
+            <span>Size</span>
+            <select name="size" id="size-select"></select>
+          </label>
+          <label class="field">
+            <span>Color</span>
+            <select name="color" id="color-select"></select>
+          </label>
+          <button type="submit">Generate Try-On</button>
+        </form>
+        <div id="status"></div>
+      </section>
+      <section class="panel">
+        <h2>Preview</h2>
+        <div class="preview">
+          <img id="preview-image" alt="Preview" />
+        </div>
+      </section>
+      <section class="panel">
+        <h2>3D Viewer</h2>
+        <div class="viewer">
+          <canvas id="viewer-canvas"></canvas>
+        </div>
+        <pre id="metadata"></pre>
+      </section>
+    </main>
+    <footer>
+      <p>Prototype pipeline – canonical pose, glTF export, and SVG preview. See README for instructions.</p>
+    </footer>
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
