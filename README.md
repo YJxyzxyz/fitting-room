@@ -199,4 +199,4 @@ Feel free to fork and iterate — the project is designed to be a springboard fo
 
 ## License
 
-[MIT](LICENSE)
+[Apache](LICENSE)
