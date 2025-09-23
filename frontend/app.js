@@ -1,6 +1,6 @@
-import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
-import { OrbitControls } from 'https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js';
-import { GLTFLoader } from 'https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js';
+import * as THREE from './vendor/three/build/three.module.js';
+import { OrbitControls } from './vendor/three/examples/jsm/controls/OrbitControls.js';
+import { GLTFLoader } from './vendor/three/examples/jsm/loaders/GLTFLoader.js';
 
 const API_BASE = window.localStorage.getItem('tryon-api-base') || `${window.location.protocol}//${window.location.hostname}:8000`;
 const form = document.getElementById('tryon-form');
@@ -43,13 +43,48 @@ colorSelect.addEventListener('change', syncColorSelectStyle);
 
 async function init() {
   const loadResult = await loadGarments();
-  viewer = new TryOnViewer(document.getElementById('viewer-canvas'));
   form.addEventListener('submit', onSubmit);
   if (loadResult.remote) {
     setStatus(`Ready. Backend base URL: ${API_BASE}`);
   } else {
     setStatus(`Offline catalogue loaded. Start the backend (${API_BASE}) to enable try-on generation.`);
   }
+  initialiseViewer();
+}
+
+function initialiseViewer() {
+  if (viewer) return;
+  const canvas = document.getElementById('viewer-canvas');
+  if (!canvas) {
+    console.warn('Viewer canvas missing, cannot initialise.');
+    return;
+  }
+  try {
+    viewer = new TryOnViewer(canvas);
+  } catch (error) {
+    console.error('Failed to initialise viewer', error);
+    showViewerUnavailableNotice('3D preview unavailable (WebGL not supported or initialisation failed). Try-on requests remain available.');
+  }
+}
+
+function showViewerUnavailableNotice(message) {
+  const container = document.querySelector('.viewer');
+  if (!container) {
+    console.warn('Viewer container missing, cannot display notice.');
+    return;
+  }
+  const canvas = document.getElementById('viewer-canvas');
+  if (canvas) {
+    canvas.hidden = true;
+  }
+  container.classList.add('viewer--unavailable');
+  let notice = container.querySelector('.viewer-unavailable');
+  if (!notice) {
+    notice = document.createElement('div');
+    notice.className = 'viewer-unavailable';
+    container.appendChild(notice);
+  }
+  notice.textContent = message;
 }
 
 async function loadGarments() {
@@ -332,9 +367,9 @@ class TryOnViewer {
       if (this.current) {
         this.scene.remove(this.current);
       }
-      this.current = gltf.scene;
-      this.scene.add(gltf.scene);
-      this.fitCamera(gltf.scene);
+      this.current = gltf.scene || gltf;
+      this.scene.add(this.current);
+      this.fitCamera(this.current);
     }, undefined, (error) => {
       console.error('Failed to load model', error);
       setStatus(`Could not load model: ${error.message}`);
@@ -367,4 +402,7 @@ class TryOnViewer {
   }
 }
 
-init();
+init().catch((error) => {
+  console.error('Failed to initialise interface', error);
+  setStatus(`Initialisation failed: ${error.message}`);
+});
