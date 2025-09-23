@@ -6,9 +6,11 @@ The current solution features:
 
 - **Canonical body pose estimation** with automatic scaling from the input image dimensions (no heavyweight ML dependencies).
 - **Procedural 3D mesh generation** for the human body and garments with per-vertex colours.
-- **glTF 2.0 export** and **SVG preview rendering** for quick inspection of results.
+- **Pose-aware pretrained garment deformation** that sculpts meshes using learned blend components and pose features.
+- **Lightweight cloth simulation exports** that capture frame-by-frame drape dynamics for each try-on result.
+- **glTF 2.0 export** and **SVG preview rendering** for quick inspection of results alongside cloth animation metadata.
 - **FastAPI backend** with `/tryon`, `/result/{task_id}`, and `/garments` endpoints.
-- **Vanilla JavaScript front-end** (Three.js viewer) capable of uploading images, polling the backend, and inspecting the generated 3D assets.
+- **Vanilla JavaScript front-end** (Three.js viewer) with an offline garment catalogue fallback so colour/size selectors remain interactive even if the API is unreachable.
 - **Pytest regression tests** covering the full offline pipeline.
 
 Even though the geometry is synthetic, the code structure mirrors a production pipeline (segmentation → pose → garment fitting → rendering) so that each stage can later be swapped with learned models.
@@ -89,6 +91,8 @@ localStorage.setItem('tryon-api-base', 'http://your-api-host:port');
 
 Reload the page and the new base URL will be used.
 
+> The front-end ships with a bundled garment catalogue so garment/size/colour pickers remain usable even if the backend is down. The **Generate Try-On** button stays disabled until the API becomes reachable.
+
 ---
 
 ## Backend pipeline overview
@@ -105,16 +109,20 @@ Reload the page and the new base URL will be used.
    - Procedurally builds a low-poly body mesh (torso, head, limbs) using axis-aligned boxes with skin and clothing colours.
    - Meshes are merged into a single `Mesh` object storing vertex positions, normals, per-vertex RGBA colours, and indices.
 
-4. **Garment fitting** (`backend/pipeline/garment.py`)
+4. **Garment fitting** (`backend/pipeline/garment.py`, `backend/pipeline/pretrained.py`)
    - Loads garment metadata from `assets/garments/garments.json`.
    - Supports size scaling and colourway selection.
-   - Creates a garment volume around the torso using the canonical joint positions.
+   - Feeds canonical pose features into a pretrained deformation library when available to generate draped meshes with shading metadata (falls back to analytic boxes otherwise).
 
-5. **Rendering & export** (`backend/pipeline/render.py`)
+5. **Cloth simulation** (`backend/pipeline/physics.py`)
+   - Runs a deterministic mass-spring cloth pass seeded by the generated garment mesh and pose-aware metadata.
+   - Exports time-sampled vertex positions (`cloth_simulation.json`) alongside pinned vertex indices for downstream animation systems.
+
+6. **Rendering & export** (`backend/pipeline/render.py`)
    - Merges body and garment meshes, exports a **glTF 2.0** scene with embedded base64 buffers.
-   - Generates a lightweight **SVG preview** showing the skeleton and garment silhouette.
+   - Generates a lightweight **SVG preview** showing the skeleton and garment silhouette, and references the cloth animation artefact in the metadata.
 
-6. **Task orchestration** (`backend/api/routes.py`)
+7. **Task orchestration** (`backend/api/routes.py`)
    - `/tryon`: accepts an image and garment configuration, returns a task ID.
    - `/result/{task_id}`: reports progress and exposes the preview + model URLs when complete.
    - `/garments`: lists available garment templates for the front-end.
@@ -178,8 +186,8 @@ The included modules (`pose.py`, `geometry.py`, `garment.py`, `render.py`) were 
 
 ## Limitations & roadmap
 
-- The current body/garment geometry is intentionally stylised and does **not** capture garment draping, wrinkles, or occlusion by limbs and hair.
-- No real-time physics or animation support yet.
+- Garment draping and wrinkles are approximated via blend components plus a stylised cloth pass; results are not production-fidelity yet.
+- Cloth simulation runs offline per request; true real-time interaction and body/scene collisions remain future work.
 - FastAPI runs tasks synchronously in background threads; switch to a message queue for scale.
 - Front-end uses CDN-hosted Three.js modules — for production you should bundle assets locally.
 

@@ -7,6 +7,7 @@ from typing import Dict, List, Tuple
 
 from ..utils.logging import get_logger
 from .geometry import Mesh, create_box
+from .pretrained import PretrainedLibrary, compute_pose_features, summarize_features
 from .pose import PoseResult
 
 
@@ -43,6 +44,7 @@ class GarmentManager:
     def __init__(self, garment_root: Path) -> None:
         self.garment_root = garment_root
         self._garments = self._load_garments(garment_root)
+        self._pretrained = PretrainedLibrary(garment_root / "models")
 
     def _load_garments(self, garment_root: Path) -> Dict[str, GarmentDefinition]:
         manifest_path = garment_root / "garments.json"
@@ -83,11 +85,18 @@ class GarmentManager:
                     {"id": color.id, "name": color.name, "color": color.hex_code}
                     for color in garment.colorways.values()
                 ],
+                "supports_physics": self._pretrained.has_model(garment.id),
             }
             for garment in self._garments.values()
         ]
 
-    def build_garment_mesh(self, pose: PoseResult, garment_id: str, size_id: str | None, color_id: str | None) -> Tuple[Mesh, GarmentColorway]:
+    def build_garment_mesh(
+        self,
+        pose: PoseResult,
+        garment_id: str,
+        size_id: str | None,
+        color_id: str | None,
+    ) -> Tuple[Mesh, GarmentColorway, Dict[str, object]]:
         garment = self._garments[garment_id]
         colorway = self._resolve_colorway(garment, color_id)
         scale = garment.sizes.get(size_id, GarmentSize(id="default", scale=1.0)).scale if garment.sizes else 1.0
@@ -100,8 +109,30 @@ class GarmentManager:
         center_x = (keypoints["shoulder_r"][0] + keypoints["shoulder_l"][0]) / 2.0
         center_y = (keypoints["neck"][1] + keypoints["hip_l"][1]) / 2.0
         center_z = 0.02 * pose.scale
-        mesh = create_box((center_x, center_y, center_z), (garment_width, garment_height, depth), colorway.color)
-        return mesh, colorway
+        pose_features = compute_pose_features(pose.keypoints, pose.scale)
+        generator_metadata: Dict[str, object] = {
+            "pose_features": dict(pose_features),
+            "pose_features_summary": summarize_features(pose_features),
+            "center": [center_x, center_y, center_z],
+            "size": [garment_width, garment_height, depth],
+        }
+        if self._pretrained.has_model(garment_id):
+            generated = self._pretrained.generate(
+                garment_id,
+                pose_features=pose_features,
+                target_center=(center_x, center_y, center_z),
+                target_size=(garment_width, garment_height, depth if depth > 1e-5 else 0.08 * pose.scale),
+                base_color=colorway.color,
+            )
+            mesh = generated.mesh
+            generator_metadata.update(generated.metadata)
+            generator_metadata["mode"] = "pretrained"
+        else:
+            mesh = create_box((center_x, center_y, center_z), (garment_width, garment_height, depth), colorway.color)
+            generator_metadata["mode"] = "analytic"
+            generator_metadata.setdefault("pinned_vertices", [])
+            generator_metadata["vertex_count"] = mesh.vertex_count
+        return mesh, colorway, generator_metadata
 
     def _resolve_colorway(self, garment: GarmentDefinition, color_id: str | None) -> GarmentColorway:
         if color_id and color_id in garment.colorways:

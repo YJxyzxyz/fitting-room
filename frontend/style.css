@@ -64,6 +64,35 @@ button:hover {
   box-shadow: 0 10px 22px rgba(37, 99, 235, 0.32);
 }
 
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+  transform: none;
+  box-shadow: none;
+}
+
+select {
+  padding: 0.5rem 0.6rem;
+  border-radius: 10px;
+  border: 1px solid #d4d9e3;
+  background: #f8fafc;
+  font-size: 0.95rem;
+  color: inherit;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+select:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.2);
+}
+
+select:disabled {
+  cursor: not-allowed;
+  background: #e2e8f0;
+  color: #94a3b8;
+}
+
 .preview {
   min-height: 220px;
   display: flex;
