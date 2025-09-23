@@ -10,59 +10,139 @@ const colorSelect = document.getElementById('color-select');
 const statusBox = document.getElementById('status');
 const previewImage = document.getElementById('preview-image');
 const metadataBox = document.getElementById('metadata');
+const submitButton = form.querySelector('button[type="submit"]');
+
+const FALLBACK_GARMENTS = [
+  {
+    id: 'tshirt_basic',
+    name: 'Essential Crew Tee',
+    category: 'top',
+    sizes: ['S', 'M', 'L'],
+    colorways: [
+      { id: 'classic-white', name: 'Classic White', color: '#f6f6f6ff' },
+      { id: 'sunset-orange', name: 'Sunset Orange', color: '#f57b42ff' },
+    ],
+  },
+  {
+    id: 'hoodie_relaxed',
+    name: 'Relaxed Hoodie',
+    category: 'outerwear',
+    sizes: ['S', 'M', 'L'],
+    colorways: [
+      { id: 'midnight-blue', name: 'Midnight Blue', color: '#1c2d52ff' },
+      { id: 'forest-green', name: 'Forest Green', color: '#2b5d44ff' },
+    ],
+  },
+];
 
 let viewer;
+let backendAvailable = true;
+let variantsBound = false;
+
+colorSelect.addEventListener('change', syncColorSelectStyle);
 
 async function init() {
-  await loadGarments();
+  const loadResult = await loadGarments();
   viewer = new TryOnViewer(document.getElementById('viewer-canvas'));
   form.addEventListener('submit', onSubmit);
-  setStatus(`Ready. Backend base URL: ${API_BASE}`);
+  if (loadResult.remote) {
+    setStatus(`Ready. Backend base URL: ${API_BASE}`);
+  } else {
+    setStatus(`Offline catalogue loaded. Start the backend (${API_BASE}) to enable try-on generation.`);
+  }
 }
 
 async function loadGarments() {
+  let garments = [];
+  let remote = false;
   try {
     const response = await fetch(`${API_BASE}/garments`);
+    if (!response.ok) {
+      throw new Error(`${response.status} ${response.statusText}`);
+    }
     const data = await response.json();
-    garmentSelect.innerHTML = '';
-    data.garments.forEach((garment) => {
-      const option = document.createElement('option');
-      option.value = garment.id;
-      option.textContent = `${garment.name} (${garment.category})`;
-      option.dataset.sizes = JSON.stringify(garment.sizes);
-      option.dataset.colorways = JSON.stringify(garment.colorways);
-      garmentSelect.appendChild(option);
-    });
-    garmentSelect.addEventListener('change', updateVariantSelectors);
-    updateVariantSelectors();
+    garments = Array.isArray(data.garments) ? data.garments : [];
+    if (!garments.length) {
+      throw new Error('Empty garment catalogue');
+    }
+    remote = true;
   } catch (error) {
-    setStatus(`Failed to load garments: ${error}`);
+    console.warn('Falling back to bundled garment catalogue:', error);
+    garments = FALLBACK_GARMENTS;
   }
+  populateGarments(garments);
+  setBackendAvailability(remote);
+  return { remote };
+}
+
+function populateGarments(garments) {
+  garmentSelect.innerHTML = '';
+  if (!garments.length) {
+    garmentSelect.appendChild(new Option('No garments available', '', true, true));
+    garmentSelect.disabled = true;
+    sizeSelect.innerHTML = '';
+    sizeSelect.disabled = true;
+    colorSelect.innerHTML = '';
+    colorSelect.disabled = true;
+    syncColorSelectStyle();
+    return;
+  }
+
+  garments.forEach((garment) => {
+    const option = document.createElement('option');
+    option.value = garment.id;
+    option.textContent = `${garment.name} (${garment.category})`;
+    option.dataset.sizes = JSON.stringify(garment.sizes || []);
+    option.dataset.colorways = JSON.stringify(garment.colorways || []);
+    garmentSelect.appendChild(option);
+  });
+  garmentSelect.disabled = false;
+  if (!variantsBound) {
+    garmentSelect.addEventListener('change', updateVariantSelectors);
+    variantsBound = true;
+  }
+  garmentSelect.selectedIndex = 0;
+  updateVariantSelectors();
 }
 
 function updateVariantSelectors() {
   const selected = garmentSelect.options[garmentSelect.selectedIndex];
-  const sizes = JSON.parse(selected?.dataset.sizes || '[]');
-  const colors = JSON.parse(selected?.dataset.colorways || '[]');
+  const sizes = parseDatasetArray(selected?.dataset.sizes);
+  const colors = parseDatasetArray(selected?.dataset.colorways);
+
   sizeSelect.innerHTML = '';
+  const autoOption = new Option('Auto', '', true, true);
+  sizeSelect.appendChild(autoOption);
+  sizes.forEach((size) => {
+    sizeSelect.appendChild(new Option(size, size));
+  });
+  sizeSelect.disabled = sizes.length === 0;
+  sizeSelect.title = sizes.length ? 'Choose a size or keep auto-fit' : 'Sizes auto-calculated by pose';
+
   colorSelect.innerHTML = '';
   colors.forEach((color) => {
     const option = document.createElement('option');
     option.value = color.id;
     option.textContent = `${color.name}`;
-    option.style.background = color.color;
+    const cssColor = formatCssColor(color.color);
+    const textColor = chooseTextColor(color.color);
+    option.dataset.cssColor = cssColor;
+    option.dataset.textColor = textColor;
+    option.style.background = cssColor;
+    option.style.color = textColor;
+    option.title = `${color.name} (${color.id})`;
     colorSelect.appendChild(option);
   });
   if (!colors.length) {
-    const option = document.createElement('option');
-    option.value = '';
-    option.textContent = 'Default';
+    const option = new Option('Default', '', true, true);
+    option.dataset.cssColor = '#f8fafc';
+    option.dataset.textColor = '#1f2937';
     colorSelect.appendChild(option);
   }
-  sizeSelect.appendChild(new Option('Auto', '', true, true));
-  sizes.forEach((size) => {
-    sizeSelect.appendChild(new Option(size, size));
-  });
+  colorSelect.disabled = !colors.length;
+  colorSelect.title = colors.length ? 'Select a colourway' : 'No alternate colourways available';
+  colorSelect.selectedIndex = colorSelect.options.length ? 0 : -1;
+  syncColorSelectStyle();
 }
 
 async function onSubmit(event) {
@@ -71,6 +151,10 @@ async function onSubmit(event) {
   const garmentId = garmentSelect.value;
   if (!garmentId) {
     setStatus('Please select a garment.');
+    return;
+  }
+  if (!backendAvailable) {
+    setStatus('Backend offline. Start the API service to submit try-on requests.');
     return;
   }
   setStatus('Uploading request…');
@@ -132,6 +216,93 @@ function setStatus(message) {
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function setBackendAvailability(available) {
+  backendAvailable = available;
+  if (submitButton) {
+    submitButton.disabled = !available;
+    submitButton.title = available
+      ? 'Generate a new try-on preview'
+      : `Start the backend API at ${API_BASE} to enable try-on generation.`;
+  }
+}
+
+function parseDatasetArray(serialized) {
+  if (!serialized) return [];
+  try {
+    const parsed = JSON.parse(serialized);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    console.warn('Failed to parse option dataset:', error);
+    return [];
+  }
+}
+
+function formatCssColor(input) {
+  if (!input || typeof input !== 'string') {
+    return '#f8fafc';
+  }
+  const value = input.trim();
+  if (!value.startsWith('#')) {
+    return value;
+  }
+  if (value.length === 7) {
+    return value;
+  }
+  if (value.length === 9) {
+    const r = parseInt(value.slice(1, 3), 16);
+    const g = parseInt(value.slice(3, 5), 16);
+    const b = parseInt(value.slice(5, 7), 16);
+    const a = parseInt(value.slice(7, 9), 16) / 255;
+    return `rgba(${r}, ${g}, ${b}, ${a.toFixed(3)})`;
+  }
+  return value;
+}
+
+function parseColorComponents(input) {
+  if (!input || typeof input !== 'string') {
+    return { r: 248, g: 250, b: 252, a: 1 };
+  }
+  const value = input.trim();
+  if (value.startsWith('#')) {
+    const hex = value.slice(1);
+    if (hex.length === 6 || hex.length === 8) {
+      const r = parseInt(hex.slice(0, 2), 16);
+      const g = parseInt(hex.slice(2, 4), 16);
+      const b = parseInt(hex.slice(4, 6), 16);
+      const a = hex.length === 8 ? parseInt(hex.slice(6, 8), 16) / 255 : 1;
+      return { r, g, b, a };
+    }
+  }
+  const rgbaMatch = value.match(/rgba?\(([^)]+)\)/i);
+  if (rgbaMatch) {
+    const parts = rgbaMatch[1].split(',').map((part) => parseFloat(part.trim()));
+    if (parts.length >= 3) {
+      const [r, g, b, a = 1] = parts;
+      return { r, g, b, a };
+    }
+  }
+  return { r: 248, g: 250, b: 252, a: 1 };
+}
+
+function chooseTextColor(input) {
+  const { r, g, b } = parseColorComponents(input);
+  const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  return luminance > 0.6 ? '#1f2937' : '#f8fafc';
+}
+
+function syncColorSelectStyle() {
+  const option = colorSelect.options[colorSelect.selectedIndex];
+  if (!option) {
+    colorSelect.style.background = '';
+    colorSelect.style.color = '';
+    return;
+  }
+  const cssColor = option.dataset.cssColor || option.style.backgroundColor || '#f8fafc';
+  const textColor = option.dataset.textColor || '#1f2937';
+  colorSelect.style.background = cssColor;
+  colorSelect.style.color = textColor;
 }
 
 class TryOnViewer {
