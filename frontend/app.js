@@ -1,6 +1,29 @@
-import * as THREE from 'https://unpkg.com/three@0.160.0/build/three.module.js';
-import { OrbitControls } from 'https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js';
-import { GLTFLoader } from 'https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js';
+const VIEWER_MODULE_SOURCES = [
+  {
+    label: 'cdn',
+    modules: {
+      three: 'https://unpkg.com/three@0.160.0/build/three.module.js',
+      controls: 'https://unpkg.com/three@0.160.0/examples/jsm/controls/OrbitControls.js',
+      gltf: 'https://unpkg.com/three@0.160.0/examples/jsm/loaders/GLTFLoader.js',
+    },
+  },
+  {
+    label: 'local',
+    modules: {
+      three: new URL('./vendor/three/build/three.module.js', import.meta.url).href,
+      controls: new URL('./vendor/three/examples/jsm/controls/OrbitControls.js', import.meta.url).href,
+      gltf: new URL('./vendor/three/examples/jsm/loaders/GLTFLoader.js', import.meta.url).href,
+    },
+  },
+];
+
+let THREE;
+let OrbitControls;
+let GLTFLoader;
+let viewerLibrariesReady = false;
+let viewerDependencyErrors = [];
+
+const viewerDependenciesPromise = loadViewerDependencies();
 
 const API_BASE = window.localStorage.getItem('tryon-api-base') || `${window.location.protocol}//${window.location.hostname}:8000`;
 const form = document.getElementById('tryon-form');
@@ -43,13 +66,92 @@ colorSelect.addEventListener('change', syncColorSelectStyle);
 
 async function init() {
   const loadResult = await loadGarments();
-  viewer = new TryOnViewer(document.getElementById('viewer-canvas'));
   form.addEventListener('submit', onSubmit);
   if (loadResult.remote) {
     setStatus(`Ready. Backend base URL: ${API_BASE}`);
   } else {
     setStatus(`Offline catalogue loaded. Start the backend (${API_BASE}) to enable try-on generation.`);
   }
+
+  viewerDependenciesPromise.then(() => {
+    if (!viewerLibrariesReady) {
+      showViewerUnavailableNotice(buildViewerUnavailableMessage());
+      return;
+    }
+
+    try {
+      viewer = new TryOnViewer(document.getElementById('viewer-canvas'));
+    } catch (error) {
+      console.error('Failed to initialise viewer', error);
+      viewerDependencyErrors.push({ source: 'initialisation', error });
+      showViewerUnavailableNotice('3D preview unavailable (initialisation failed).');
+    }
+  });
+}
+
+async function loadViewerDependencies() {
+  for (const source of VIEWER_MODULE_SOURCES) {
+    try {
+      const [threeModule, controlsModule, gltfModule] = await Promise.all([
+        import(source.modules.three),
+        import(source.modules.controls),
+        import(source.modules.gltf),
+      ]);
+      THREE = threeModule;
+      OrbitControls = controlsModule.OrbitControls;
+      GLTFLoader = gltfModule.GLTFLoader;
+      viewerLibrariesReady = true;
+      viewerDependencyErrors = [];
+      console.info(`Loaded viewer dependencies from ${source.label}.`);
+      return;
+    } catch (error) {
+      viewerDependencyErrors.push({ source: source.label, error });
+      console.warn(`Failed to load viewer dependencies from ${source.label}`, error);
+    }
+  }
+  viewerLibrariesReady = false;
+}
+
+function buildViewerUnavailableMessage() {
+  if (!viewerDependencyErrors.length) {
+    return '3D preview unavailable. The viewer libraries could not be loaded.';
+  }
+  const descriptors = viewerDependencyErrors.map(({ source }) => {
+    if (source === 'cdn') {
+      return 'remote CDN blocked';
+    }
+    if (source === 'local') {
+      return 'local fallback files missing';
+    }
+    return source;
+  });
+  const unique = [...new Set(descriptors)];
+  const reason = unique.join(', ');
+  let suffix = ' Try-on requests remain available.';
+  if (unique.includes('local fallback files missing')) {
+    suffix += ' Add the Three.js modules to frontend/vendor/three to enable the offline viewer.';
+  }
+  return `3D preview unavailable (${reason}).${suffix}`;
+}
+
+function showViewerUnavailableNotice(message) {
+  const container = document.querySelector('.viewer');
+  if (!container) {
+    console.warn('Viewer container missing, cannot display notice.');
+    return;
+  }
+  const canvas = document.getElementById('viewer-canvas');
+  if (canvas) {
+    canvas.hidden = true;
+  }
+  container.classList.add('viewer--unavailable');
+  let notice = container.querySelector('.viewer-unavailable');
+  if (!notice) {
+    notice = document.createElement('div');
+    notice.className = 'viewer-unavailable';
+    container.appendChild(notice);
+  }
+  notice.textContent = message;
 }
 
 async function loadGarments() {
@@ -366,5 +468,7 @@ class TryOnViewer {
     this.renderer.render(this.scene, this.camera);
   }
 }
-
-init();
+init().catch((error) => {
+  console.error('Failed to initialise interface', error);
+  setStatus(`Initialisation failed: ${error.message}`);
+});
